@@ -12,7 +12,7 @@ getRandomDataFunc <- function(n, p) {
   X <- matrix(rnorm(n*p), n)
   trueBeta <- as.matrix(sample(-5:5, p+1L, TRUE)) / 10
   y <- cbind(1, X) %*% trueBeta + rnorm(n)
-  return(list(X = X, y = y))
+  return(list(X = cbind(1, X), y = y))
 }
 
 # RcppArmadillo
@@ -20,21 +20,37 @@ Rcpp::sourceCpp("armaLmFunc.cpp")
 
 # R
 rLmFunc <- function(X, y) {
-  df <- nrow(X) - ncol(X)
+  dfResidual <- nrow(X) - ncol(X)
   pinvXTX <- MASS::ginv(t(X) %*% X)
   coef <- pinvXTX %*% t(X) %*% y
   res <- y - X %*% coef
-  s2 <- norm(res, "2") / df
-  se <- sqrt(s2 * diag(pinvXTX))
+  errVar <- as.vector(crossprod(res)) / dfResidual
+  se <- sqrt(errVar * diag(pinvXTX))
   return(list(
     coefficients = as.vector(coef),
-    se = se, 
-    df = df
+    errVar = errVar,
+    se = se,
+    dfResidual = dfResidual
   ))
 }
 
 # check that the results of two functions are equal
 set.seed(100)
+
+lm.fit(a$X, a$y)$df.residual
+
+# check rLmFunc is equal to lm.fit
+with(getRandomDataFunc(100L, 20L),
+     all.equal(coef(lm.fit(X, y)), coef(rLmFunc(X, y)), 
+               check.attributes = FALSE))
+with(getRandomDataFunc(100L, 20L), 
+     all.equal(summary(lm(y ~ 0 + X))$sigma, 
+               sqrt(rLmFunc(X, y)$errVar), check.attributes = FALSE))
+with(getRandomDataFunc(100L, 20L), 
+     all.equal(summary(lm(y ~ 0 + X))$coefficients[ , 2], 
+               rLmFunc(X, y)$se, check.attributes = FALSE))
+
+# check armaLmFunc is equal to rLmFunc
 with(getRandomDataFunc(100L, 20L), all.equal(armaLmFunc(X, y), rLmFunc(X, y)))
 
 # benchmark performance
