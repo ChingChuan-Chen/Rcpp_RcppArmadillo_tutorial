@@ -20,12 +20,19 @@ Rcpp::sourceCpp("armaLmFunc.cpp")
 
 # R
 rLmFunc <- function(X, y) {
+  # get degree of freedom
   dfResidual <- nrow(X) - ncol(X)
+  # get pseudo-inverse of matrix XTX
   pinvXTX <- MASS::ginv(t(X) %*% X)
+  # get coef of linear model
   coef <- pinvXTX %*% t(X) %*% y
+  # get residuals
   res <- y - X %*% coef
+  # calculate variance of residuals
   errVar <- as.vector(crossprod(res)) / dfResidual
+  # std.errors of coefficients
   se <- sqrt(errVar * diag(pinvXTX))
+  # return
   return(list(
     coefficients = as.vector(coef),
     errVar = errVar,
@@ -75,5 +82,5 @@ microbenchmark(
   arma = with(getRandomDataFunc(10000L, 200L), armaLmFunc(X, y)),
   r = with(getRandomDataFunc(10000L, 200L), rLmFunc(X, y)),
   r2 = with(getRandomDataFunc(10000L, 200L), lm.fit(X, y)),
-  times = 3L
+  times = 20L
 )
