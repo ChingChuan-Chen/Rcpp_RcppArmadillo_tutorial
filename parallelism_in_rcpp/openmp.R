@@ -6,7 +6,7 @@ library(installr)
 require2(Rcpp)
 
 # cpp file
-Rcpp::sourceCpp("example_openmp.cpp")
+Rcpp::sourceCpp("exampleOpenmp.cpp")
 
 system.time(long_computation(1e4, 1L))
 # Number of threads=1
