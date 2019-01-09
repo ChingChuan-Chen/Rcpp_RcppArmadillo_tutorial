@@ -34,9 +34,11 @@ all.equal(logLik(fit)[1], rLogisticLogLikeliCalcFunc(randomData$X, randomData$y,
 all.equal(logLik(fit)[1], armaLogisticLogLikeliCalcFunc(randomData$X, randomData$y, coef(fit)))
 
 # benchmark
+randomData <- getRandomDataFunc(5000000L, 20L)
+fit <- glm(randomData$y~0+randomData$X, family = binomial())
 microbenchmark(
-  arma = with(getRandomDataFunc(100000L, 100L), armaLogisticLogLikeliCalcFunc(X, y, coef(glm(y~0+X, family = binomial())))),
-  r = with(getRandomDataFunc(100000L, 100L), rLogisticLogLikeliCalcFunc(X, y, coef(glm(y~0+X, family = binomial())))), 
-  r2 = with(getRandomDataFunc(100000L, 100L), logLik(glm(y~0+X, family = binomial()))),
+  arma = with(randomData, armaLogisticLogLikeliCalcFunc(randomData$X, randomData$y, coef(fit))),
+  r = with(randomData, rLogisticLogLikeliCalcFunc(randomData$X, randomData$y, coef(fit))), 
+  r2 = with(randomData, logLik(fit)),
   times = 5L
 )
