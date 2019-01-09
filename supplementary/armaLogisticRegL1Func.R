@@ -6,7 +6,9 @@ library(installr)
 require2(Rcpp)
 require2(RcppArmadillo)
 require2(RcppParallel)
-require2(glmnet)
+require2(data.table)
+require2(pipeR)
+require2(ggplot2)
 
 logisticFunc <- function(t) pmin(pmax(1/(1+exp(-t)), 10*.Machine$double.eps), 1 - 10*.Machine$double.eps)
 
@@ -18,7 +20,26 @@ getRandomDataFunc <- function(n, p) {
 }
 
 # cpp file
-# Rcpp::sourceCpp("armaLogisticRegL1Func.cpp")
+Rcpp::sourceCpp("armaLogisticRegL1Func.cpp")
+armaLogisticRegL1Func <- function(X, y, nlambda = 100L, lambda = NULL, 
+                                  lambdaMinRatio = ifelse(nrow(X) < ncol(X), 1e-2, 1e-4),
+                                  intercept = TRUE, epsilon = 1e-8, maxit = 1e5L) {
+  if (is.null(lambda)) {
+    if (intercept) {
+      idx <- 2L:ncol(X)
+    } else {
+      idx <- 1L:ncol(X)
+    }
+    logLabmdaMax <- log(max(abs(t(X[ , idx]) %*% y) / nrow(X)))
+    lambda <- exp(seq(logLabmdaMax, logLabmdaMax + log(lambdaMinRatio), length.out = nlambda))
+  } else {
+    stopifnot(all(lambda >= 0))
+    nlambda <- length(lambda)
+  }
+  fit <- armaLogisticRegL1FuncCpp(X, y, nlambda, lambda, lambdaMinRatio, intercept, epsilon, maxit)
+  # colnames(fit$results) <- c("Lambda", "%Dev", "df")
+  return(fit)
+}
 
 # R
 rLogisticL1RegFunc <- function(X, y, nlambda = 100L, lambda = NULL, 
@@ -75,7 +96,7 @@ rLogisticL1RegFunc <- function(X, y, nlambda = 100L, lambda = NULL,
       
       # update intercept
       if (intercept)
-        coefs[1] <- coefs[1] +  crossprod(X[ , 1], residuals) / nrow(X)
+        coefs[1] <- coefs[1] + crossprod(X[ , 1], residuals) / nrow(X)
       
       # pathwise coordinate descent
       for (k in seq_along(locUpdate)) {
@@ -107,7 +128,7 @@ rLogisticL1RegFunc <- function(X, y, nlambda = 100L, lambda = NULL,
     coefMat[ , l] <- coefs
     deviances[l] <- deviance
     devianceRatio[l] <- 1 - deviance / nulldev 
-    if (((devianceRatio[l] - devianceRatio[l-1]) / devianceRatio[l-1] < 1e-5) || (devianceRatio[l] > 0.999))
+    if (((devianceRatio[l] - devianceRatio[l-1]) / devianceRatio[l] < 1e-5) || (devianceRatio[l] > 0.999))
       break
     if (it > maxit)
       stop("Exceed maximum iteration")
@@ -115,10 +136,11 @@ rLogisticL1RegFunc <- function(X, y, nlambda = 100L, lambda = NULL,
   
   # retrun
   return(list(
-    results = cbind(lambda, "%Dev" = c(-diff(deviances) / deviances[-1], NA_real_), df = colSums(abs(coefMat) > 0) - 1),
-    coefficients = coefMat,
+    results = cbind(Lambda = lambda[1:l], "%Dev" = c(NA_real_, -diff(deviances[1:l]) / deviances[2:l]),
+                    df = colSums(abs(coefMat[ , 1:l]) > 0) - 1),
+    coefficients = coefMat[ , 1:l],
     nulldev = nulldev,
-    deviances = deviances,
+    deviances = deviances[1:l],
     dfResidual = dfResidual,
     iter = it,
     converged = converged
@@ -128,10 +150,26 @@ rLogisticL1RegFunc <- function(X, y, nlambda = 100L, lambda = NULL,
 # check correctness
 set.seed(100)
 zz <- getRandomDataFunc(100L, 20L)
-with(zz,
-     rLogisticL1RegFunc(X, y)
+fit <- with(zz, rLogisticL1RegFunc(X, y))
+
+fitRes <- data.table(
+  lambda = rep(fit$results[ , 1], each = nrow(fit$coefficients) - 1L), 
+  variable = paste0("V", 1L:(nrow(fit$coefficients)-1L)) %>>%
+    factor(levels = .),
+  coef = as.vector(fit$coefficients[-1L, ])
 )
-glmnet(zz$X[ , 2L:ncol(zz$X)], zz$y, "binomial", standardize = FALSE)
-glmnet(zz$X[ , 2L:ncol(zz$X)], zz$y, "binomial", standardize = FALSE)$a0
-glmnet(zz$X[ , 2L:ncol(zz$X)], zz$y, "binomial", standardize = FALSE)$beta[,2]
-deviance(glmnet(zz$X[ , 2L:ncol(X)], zz$y, "binomial", standardize = FALSE))
+
+ggplot(fitRes, aes(lambda, coef, colour = variable)) + geom_point() + geom_line() +
+  guides(colour = guide_legend(ncol=2))
+
+
+fit2 <- with(zz, armaLogisticRegL1Func(X, y))
+fitRes <- data.table(
+  lambda = rep(fit2$results, each = nrow(fit2$coefficients) - 1L), 
+  variable = paste0("V", 1L:(nrow(fit2$coefficients)-1L)) %>>%
+    factor(levels = .),
+  coef = as.vector(fit2$coefficients[-1L, ])
+)
+
+ggplot(fitRes, aes(lambda, coef, colour = variable)) + geom_point() + geom_line() +
+  guides(colour = guide_legend(ncol=2))
